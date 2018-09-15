@@ -15,20 +15,17 @@ describe EJDB do
   	db = EJDB.open("test.ejdb", EJDB::DEFAULT_OPEN_MODE | EJDB::JBOTRUNC )
 	person1 = {
 		"_id"=>"",
-		"name"=>["somebody","somefamily"],
+		"name"=>"somebody somefamily",
 		"age"=>21,
 		"address"=> [ "1234 Nowhere Drive", "Citysville, ST" ]
 	}
 	db.save("testing", person1 )
 
-	results = db.find("testing", {"name"=>"somebody"} )
+	results = db.find("testing", {"name"=>"somebody somefamily"} )
 	puts person1.inspect
 	puts results.inspect
 	results.size.should eq(1)
 	results[0].should eq(person1)
 	db.close
-  end
-  it "works" do
-    false.should eq(true)
   end
 end

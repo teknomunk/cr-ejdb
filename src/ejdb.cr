@@ -133,9 +133,6 @@ module EJDB
 			h.each {|k,v| append(k,v.raw) }
 			Library.bson_append_finish_object( pointerof(@b) )
 		end
-#		def append( k : String, v )
-#			raise "This should never be used"
-#		end
 		def append( k : String, a : Array(String) )
 			Library.bson_append_start_array( pointerof(@b), k )
 			a.each {|i| append("",i) }
@@ -271,25 +268,6 @@ module EJDB
 	JBOTSYNC = 1<<6
 	DEFAULT_OPEN_MODE = JBOREADER | JBOWRITER | JBOCREAT
 
-#	class Hash < Hash( String, JSON::Any )
-#		def wrap( a : Array(String|JSON::Any|Int ) )
-#			a.map {|i| wrap(i) }
-#		end
-#		def wrap( v : JSON::Any )
-#			v
-#		end
-#		def wrap( v : (String|Float64|Nil) )
-#			puts 3
-#			JSON::Any.new(v)
-#		end
-#		def wrap( i : Int32 )
-#			puts 4
-#			JSON::Any.new(i.to_i64)
-#		end
-#		def []=( k, v )
-#			self[k] = wrap(v)
-#		end
-#	end
 	class DB
 		def initialize( filename : String, mode : Int32 )
 			@ptr = Library.ejdbnew()
@@ -308,6 +286,7 @@ module EJDB
 			col = @cols[collection] ||= Library.ejdbcreatecoll( @ptr, collection, nil )
 
 			objs.each {|obj|
+				obj.delete("_id") if obj["_id"] == ""
 				b = EJDB::BSON.from_hash( obj )
 
 				oid = uninitialized BSON::Library::OID
@@ -320,12 +299,14 @@ module EJDB
 			nil
 		end
 		def find( collection : String, query )
+			puts query.inspect
 			col = @cols[collection] ||= Library.ejdbcreatecoll( @ptr, collection, nil )
 			qh = EJDB::BSONQuery.from_hash(query)
 			q = Library.ejdbcreatequery( @ptr, qh.ptr, nil, 0, nil )
 
 			count = uninitialized UInt32
 			res = Library.ejdbqryexecute( col, q, pointerof(count), 0, nil )
+			puts "count=#{count}"
 
 			(0...res[0].num).map {|i| BSON.hash_from_data(res[0].array[i].ptr) }
 		end
