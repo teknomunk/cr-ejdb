@@ -298,11 +298,16 @@ module EJDB
 			Library.ejdbsyncoll(col)
 			nil
 		end
-		def find( collection : String, query )
+		def find( collection : String, query, hints = nil )
 			puts query.inspect
 			col = @cols[collection] ||= Library.ejdbcreatecoll( @ptr, collection, nil )
 			qh = EJDB::BSONQuery.from_hash(query)
-			q = Library.ejdbcreatequery( @ptr, qh.ptr, nil, 0, nil )
+			if hints.is_a?(Nil)
+				q = Library.ejdbcreatequery( @ptr, qh.ptr, nil, 0, nil )
+			else
+				hint = EJDB::BSON.from_hash(hints)
+				q = Library.ejdbcreatequery( @ptr, qh.ptr, nil, 0, hint )
+			end
 
 			count = uninitialized UInt32
 			res = Library.ejdbqryexecute( col, q, pointerof(count), 0, nil )
