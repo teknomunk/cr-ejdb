@@ -31,4 +31,4 @@ require "ejdb"
 
 ## Contributors
 
-- [your-github-user](https://github.com/teknomunk) teknomunk - creator, maintainer
+- [teknomunk](https://github.com/teknomunk) teknomunk - creator, maintainer
