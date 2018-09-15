@@ -128,6 +128,14 @@ module EJDB
 		def append( k : String, v : String )
 			Library.bson_append_string( pointerof(@b), k, v )
 		end
+		def append( k : String, v : JSON::Any )
+			append( k, v.raw )
+		end
+		def append( k : String, a : Array(JSON::Any) )
+			Library.bson_append_start_array( pointerof(@b), k )
+			a.each {|i| append("",i.raw) }
+			Library.bson_append_finish_array( pointerof(@b) )
+		end
 		def append( k : String, h : Hash(String,JSON::Any) )
 			Library.bson_append_start_object( pointerof(@b), k )
 			h.each {|k,v| append(k,v.raw) }
@@ -286,14 +294,18 @@ module EJDB
 			col = @cols[collection] ||= Library.ejdbcreatecoll( @ptr, collection, nil )
 
 			objs.each {|obj|
-				obj.delete("_id") if obj["_id"] == ""
+				obj.delete("_id") if obj.includes?("_id") && obj["_id"] == ""
 				b = EJDB::BSON.from_hash( obj )
 
 				oid = uninitialized BSON::Library::OID
 				Library.ejdbsavebson( col, b.ptr, pointerof(oid) )
 				buffer = uninitialized StaticArray(UInt8,50)
 				BSON::Library.bson_oid_to_string( pointerof(oid), buffer.to_unsafe )
-				obj["_id"] = String.new(buffer.to_unsafe)
+				if obj.is_a? Hash(String,JSON::Any)
+					obj["_id"] = JSON::Any.new(String.new(buffer.to_unsafe))
+				else
+					obj["_id"] = String.new(buffer.to_unsafe)
+				end
 			}
 			Library.ejdbsyncoll(col)
 			nil
