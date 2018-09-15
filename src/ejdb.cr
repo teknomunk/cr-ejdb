@@ -311,7 +311,6 @@ module EJDB
 			nil
 		end
 		def find( collection : String, query, hints = nil )
-			puts query.inspect
 			col = @cols[collection] ||= Library.ejdbcreatecoll( @ptr, collection, nil )
 			qh = EJDB::BSONQuery.from_hash(query)
 			if hints.is_a?(Nil)
@@ -323,7 +322,6 @@ module EJDB
 
 			count = uninitialized UInt32
 			res = Library.ejdbqryexecute( col, q, pointerof(count), 0, nil )
-			puts "count=#{count}"
 
 			(0...res[0].num).map {|i| BSON.hash_from_data(res[0].array[i].ptr) }
 		end
