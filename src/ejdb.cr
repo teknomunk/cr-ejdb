@@ -92,6 +92,7 @@ module EJDB
 			fun bson_finish( b : Pointer(BSON) ) : Int32
 			fun json2bson( jsonstr : UInt8* ) : Pointer(BSON)
 			fun bson_free( ptr : Pointer(Void) ) : Void
+			fun bson_print_raw( b : Pointer(BSON), depth : Int32 ) : Void
 
 			fun bson_iterator_init( i : Pointer(Iterator), b : Pointer(BSON) ) : Void
 			fun bson_iterator_more( i : Pointer(Iterator) ) : Int32
@@ -311,13 +312,17 @@ module EJDB
 			nil
 		end
 		def find( collection : String, query, hints = nil )
+			puts query.inspect
+			puts hints.inspect
 			col = @cols[collection] ||= Library.ejdbcreatecoll( @ptr, collection, nil )
 			qh = EJDB::BSONQuery.from_hash(query)
-			if hints.is_a?(Nil)
+			BSON::Library.bson_print_raw( qh.ptr, 0 )
+			if hints.nil?
+				puts "q1"
 				q = Library.ejdbcreatequery( @ptr, qh.ptr, nil, 0, nil )
 			else
 				hint = EJDB::BSON.from_hash(hints)
-				q = Library.ejdbcreatequery( @ptr, qh.ptr, nil, 0, hint )
+				q = Library.ejdbcreatequery( @ptr, qh.ptr, nil, 0, pointerof(hint) )
 			end
 
 			count = uninitialized UInt32
@@ -331,3 +336,4 @@ module EJDB
 		DB.new(filename,mode)
 	end
 end
+
