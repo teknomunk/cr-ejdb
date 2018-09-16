@@ -28,6 +28,15 @@ module EJDB
 		@[Link("ejdb")]
 		lib Library
 			type Bool = Int32
+			enum Validity
+				VALID = 0
+				NOT_UTF = (1<<1)
+				FIELD_HAS_DOT = (1<<2)
+				FIELD_INIT_DOLLAR = (1<<3)
+				ALREADY_FINISHED = (1<<4)
+				ERROR_ANY = (1<<5)
+				NOT_FINISHED = (1<<6)
+			end
 			struct BSON
 				data : UInt8*
 				dur : UInt8*
@@ -35,7 +44,7 @@ module EJDB
 				finished : Bool
 				stack : StaticArray(Int32,32)
 				stackPos : Int32
-				err : Int32
+				err : Validity
 				errstr : UInt8*
 				flags : Int32
 			end
@@ -81,6 +90,7 @@ module EJDB
 			fun bson_append_bool( b : Pointer(BSON), name : UInt8*, v : Int32 ) : Int32
 			fun bson_append_null( b : Pointer(BSON), name : UInt8* ) : Int32
 			fun bson_append_double( b : Pointer(BSON), name : UInt8*, d : Float64 ) : Int32
+			fun bson_append_long( b : Pointer(BSON), name : UInt8*, i : Int64 ) : Int32
 			fun bson_append_string( b : Pointer(BSON), name : UInt8*, str : UInt8* ) : Int32
 			fun bson_append_bson( b : Pointer(BSON), name : UInt8*, b2 : Pointer(BSON) ) : Int32
 			fun bson_append_start_object( b : Pointer(BSON), name : UInt8* ) : Int32
@@ -107,49 +117,69 @@ module EJDB
 			fun bson_oid_to_string( oid : Pointer(OID), buffer : UInt8* ) : Void
 		end
 
-		def initialize()
+		def initialize( query = false )
 			@b = Library::BSON.new()
-			Library.bson_init(pointerof(@b))
+			if !query
+				Library.bson_init(pointerof(@b))
+			else
+				Library.bson_init_as_query(pointerof(@b))
+			end
 		end
 		def finalize()
 			Library.bson_destroy(pointerof(@b))
 		end
 		def append( k : String, v : Nil )
 			Library.bson_append_null( pointerof(@b), k )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
 		end
 		def append( k : String, v : Bool )
 			Library.bson_append_bool( pointerof(@b), k, v )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
 		end
 		def append( k : String, v : Float64 )
 			Library.bson_append_double( pointerof(@b), k, v )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
 		end
-		def append( k : String, v : (Int32|Int64) )
+		def append( k : String, v : Int32 )
 			Library.bson_append_int( pointerof(@b), k, v )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
+		end
+		def append( k : String, v : Int64 )
+			Library.bson_append_long( pointerof(@b), k, v )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
 		end
 		def append( k : String, v : String )
 			Library.bson_append_string( pointerof(@b), k, v )
+			raise "Error building hash #{@b.err == Library::Validity::VALID}: #{@b.errstr}" if @b.err != Library::Validity::VALID
 		end
 		def append( k : String, v : JSON::Any )
 			append( k, v.raw )
 		end
 		def append( k : String, a : Array(JSON::Any) )
 			Library.bson_append_start_array( pointerof(@b), k )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
 			a.each {|i| append("",i.raw) }
 			Library.bson_append_finish_array( pointerof(@b) )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
 		end
 		def append( k : String, h : Hash(String,JSON::Any) )
 			Library.bson_append_start_object( pointerof(@b), k )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
 			h.each {|k,v| append(k,v.raw) }
 			Library.bson_append_finish_object( pointerof(@b) )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
 		end
 		def append( k : String, a : Array(String) )
 			Library.bson_append_start_array( pointerof(@b), k )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
 			a.each {|i| append("",i) }
 			Library.bson_append_finish_array( pointerof(@b) )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
 		end
 		def append_hash( hash )
 			hash.each {|k,v| append( k, v ) }
 			Library.bson_finish( pointerof(@b) )
+			raise "Error building hash #{@b.err}" if @b.err != Library::Validity::VALID
 		end
 		def to_s()
 			size : Int32 = 0
@@ -216,17 +246,15 @@ module EJDB
 			b.append_hash(hash)
 			return b
 		end
+		def self.query_from_hash( hash )
+			b = BSON.new( true )
+			b.append_hash(hash)
+			return b
+		end
 		def self.from_json( json : String )
 			b = Library.json2bson( json )
 			ptr[0] = b[0]
 			Library.bson_free(b)
-		end
-	end
-	class BSONQuery < BSON
-		Library = EJDB::BSON::Library
-		def initialize()
-			@b = Library::BSON.new()
-			Library.bson_init_as_query(pointerof(@b))
 		end
 	end
 
@@ -295,39 +323,51 @@ module EJDB
 			col = @cols[collection] ||= Library.ejdbcreatecoll( @ptr, collection, nil )
 
 			objs.each {|obj|
-				obj.delete("_id") if obj.includes?("_id") && obj["_id"] == ""
+				# Remove the _id field if it is empty, as it will fail if the record doesn't alreay exist
+				obj.delete("_id") if obj.has_key?("_id") && obj["_id"] == ""
+
+				# Turn the object into BSON
 				b = EJDB::BSON.from_hash( obj )
 
+				# Save the document and get the oid of the resulting record
 				oid = uninitialized BSON::Library::OID
 				Library.ejdbsavebson( col, b.ptr, pointerof(oid) )
+
+				# Convert the oid into a string representation
 				buffer = uninitialized StaticArray(UInt8,50)
 				BSON::Library.bson_oid_to_string( pointerof(oid), buffer.to_unsafe )
+				oid_s = String.new( buffer.to_unsafe )
+
+				# Pack the oid into the _id field
 				if obj.is_a? Hash(String,JSON::Any)
-					obj["_id"] = JSON::Any.new(String.new(buffer.to_unsafe))
+					obj["_id"] = JSON::Any.new(oid_s)
 				else
-					obj["_id"] = String.new(buffer.to_unsafe)
+					obj["_id"] = oid_s
 				end
 			}
 			Library.ejdbsyncoll(col)
 			nil
 		end
 		def find( collection : String, query, hints = nil )
-			puts query.inspect
-			puts hints.inspect
+			# Open the collection
 			col = @cols[collection] ||= Library.ejdbcreatecoll( @ptr, collection, nil )
-			qh = EJDB::BSONQuery.from_hash(query)
-			BSON::Library.bson_print_raw( qh.ptr, 0 )
+
+			# Convert query hash into BSON
+			qh = EJDB::BSON.query_from_hash(query)
+
+			# Create the query
 			if hints.nil?
-				puts "q1"
 				q = Library.ejdbcreatequery( @ptr, qh.ptr, nil, 0, nil )
 			else
-				hint = EJDB::BSON.from_hash(hints)
-				q = Library.ejdbcreatequery( @ptr, qh.ptr, nil, 0, pointerof(hint) )
+				hint = EJDB::BSON.query_from_hash(hints)
+				q = Library.ejdbcreatequery( @ptr, qh.ptr, nil, 0, hint.ptr )
 			end
 
+			# Execute the query
 			count = uninitialized UInt32
 			res = Library.ejdbqryexecute( col, q, pointerof(count), 0, nil )
 
+			# Process the results into an array of hash objects
 			(0...res[0].num).map {|i| BSON.hash_from_data(res[0].array[i].ptr) }
 		end
 	end

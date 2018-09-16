@@ -28,12 +28,22 @@ describe EJDB do
 	db.save("testing", person1, person2 )
 
 	results = db.find("testing", {"name"=>"somebody somefamily"} )
-	puts results.size
 	results.size.should eq(1)
 	results[0].should eq(person1)
+
+	results = db.find("testing", {"name"=>"john smith"} )
+	results.size.should eq(1)
+	results[0].should eq(person2)
+
+	results = db.find( "testing", {"age" => 21} )
+	results.size.should eq(2)
+
+	results = db.find( "testing", {"age" => 21}, {} of String => String )
+	results.size.should eq(2)
+
+	results = db.find( "testing", {"age" => 21}, {"$max" => 1 } )
+	results.size.should eq(1)
+
 	db.close
-  end
-  it "uses hints" do
-  	db = EJDB
   end
 end
